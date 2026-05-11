@@ -479,3 +479,65 @@
         .logo-mark {
           margin-top: 5px;
         }
+        .add-post-btn {
+          width: 100%;
+          margin: 16px 0;
+          padding: 12px 14px;
+          border: none;
+          border-radius: 12px;
+          background: #e63946;
+          color: white;
+          font-weight: 800;
+          cursor: pointer;
+        }
+        
+        .add-post-btn:hover {
+          background: #ff4d5a;
+        }
+        
+        .add-post-form {
+          margin-bottom: 18px;
+          padding: 16px;
+          border-radius: 14px;
+          background: #181818;
+          border: 1px solid #333;
+          color: white;
+          display: flex;
+          flex-direction: column;
+          gap: 10px;
+        }
+        
+        .add-post-form h3 {
+          margin: 0 0 6px;
+        }
+        
+        .add-post-form input,
+        .add-post-form select,
+        .add-post-form textarea {
+          width: 100%;
+          padding: 10px;
+          border-radius: 10px;
+          border: 1px solid #333;
+          background: #101010;
+          color: white;
+          outline: none;
+        }
+        
+        .add-post-form textarea {
+          min-height: 90px;
+          resize: vertical;
+        }
+        
+        .submit-post-btn {
+          padding: 11px 14px;
+          border: none;
+          border-radius: 10px;
+          background: #2ecc71;
+          color: #07120b;
+          font-weight: 800;
+          cursor: pointer;
+        }
+        
+        .submit-post-btn:hover {
+          background: #3ee984;
+        }

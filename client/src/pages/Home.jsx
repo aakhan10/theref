@@ -9,6 +9,18 @@ export default function Home() {
   const [replyingTo, setReplyingTo] = useState(null);
   const [replyText, setReplyText] = useState("");
   const [selectedSport, setSelectedSport] = useState("All");
+  const [showAddPost, setShowAddPost] = useState(false);
+
+  const [newPost, setNewPost] = useState({
+    title: "",
+    sport: "",
+    description: "",
+    video_url: "",
+    thumbnail_url: "",
+  });
+  
+  const canAddPost = user?.role === "admin" || user?.role === "moderator";
+
 
   useEffect(() => {
     async function loadPosts() {
@@ -23,16 +35,10 @@ export default function Home() {
           body: post.description,
           video_url: post.video_url,
           thumbnail_url: post.thumbnail_url,
-          /*likes: 0,
+          likes: 0,
           userLiked: false,
           upvotes: Number(post.likes || 0),
           downvotes: Number(post.dislikes || 0),
-          userVote: null,
-          */
-          likes: 2506,
-          userLiked: false,
-          upvotes: 420,
-          downvotes: 1208,
           userVote: null,
           comments: (post.comments || []).map((comment) => ({
             id: comment.id,
@@ -318,6 +324,81 @@ export default function Home() {
     }
   };
 
+  const handleNewPostChange = (e) => {
+    const { name, value } = e.target;
+  
+    setNewPost((prev) => ({
+      ...prev,
+      [name]: value,
+    }));
+  };
+  
+  const handleCreatePost = async (e) => {
+    e.preventDefault();
+  
+    const trimmedTitle = newPost.title.trim();
+    const trimmedDescription = newPost.description.trim();
+  
+    if (!trimmedTitle || !newPost.sport || !trimmedDescription) {
+      return;
+    }
+  
+    try {
+      const res = await fetch("http://localhost:8080/posts", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${accessToken}`,
+        },
+        body: JSON.stringify({
+          title: trimmedTitle,
+          sport: newPost.sport,
+          description: trimmedDescription,
+          video_url: newPost.video_url.trim() || null,
+          thumbnail_url: newPost.thumbnail_url.trim() || null,
+        }),
+      });
+  
+      if (!res.ok) {
+        const errorData = await res.json();
+        throw new Error(errorData.error || "Failed to create post");
+      }
+  
+      const savedPost = await res.json();
+  
+      const formattedPost = {
+        id: savedPost.id,
+        author: savedPost.sport || "TheRef",
+        title: savedPost.title,
+        body: savedPost.description,
+        video_url: savedPost.video_url,
+        thumbnail_url: savedPost.thumbnail_url,
+        likes: 0,
+        userLiked: false,
+        upvotes: 0,
+        downvotes: 0,
+        userVote: null,
+        comments: [],
+        newComment: "",
+      };
+  
+      setPosts((prev) => [formattedPost, ...prev]);
+  
+      setNewPost({
+        title: "",
+        sport: "",
+        description: "",
+        video_url: "",
+        thumbnail_url: "",
+      });
+  
+      setShowAddPost(false);
+    } catch (err) {
+      console.error("Failed to create post:", err);
+      alert(err.message);
+    }
+  };
+
   return (
     <div className="home-page">
       <header className="topbar">
@@ -352,6 +433,70 @@ export default function Home() {
             <span className="value">{user?.role}</span>
           </div>
         </div>
+        {canAddPost && (
+          <button
+            className="add-post-btn"
+            onClick={() => setShowAddPost((prev) => !prev)}
+          >
+            {showAddPost ? "Cancel" : "+ Add Post"}
+          </button>
+        )}
+
+        {canAddPost && showAddPost && (
+          <form className="add-post-form" onSubmit={handleCreatePost}>
+            <h3>Add New Debate</h3>
+
+            <input
+                type="text"
+                name="title"
+                placeholder="Title"
+                value={newPost.title}
+                onChange={handleNewPostChange}
+                required
+              />
+
+            <select
+              name="sport"
+              value={newPost.sport}
+              onChange={handleNewPostChange}
+              required
+            >
+              <option value="">Select a sport</option>
+              <option value="Football">Football</option>
+              <option value="Basketball">Basketball</option>
+              <option value="Baseball">Baseball</option>
+              <option value="Soccer">Soccer</option>
+            </select>
+
+            <textarea
+              name="description"
+              placeholder="Describe the controversial call..."
+              value={newPost.description}
+              onChange={handleNewPostChange}
+              required
+            />
+
+            <input
+              type="url"
+              name="video_url"
+              placeholder="Video URL"
+              value={newPost.video_url}
+              onChange={handleNewPostChange}
+            />
+
+            <input
+              type="url"
+              name="thumbnail_url"
+              placeholder="Thumbnail image URL"
+              value={newPost.thumbnail_url}
+              onChange={handleNewPostChange}
+            />
+
+            <button type="submit" className="submit-post-btn">
+              Create Post
+            </button>
+          </form>
+        )}
 
         <div className="sports-nav">
           <h3>Sports</h3>
