@@ -4,6 +4,7 @@ import argon2 from "argon2";
 import crypto from "crypto";
 import { pool } from "./db.js";
 import { signAccessToken, signRefreshToken, verifyRefreshToken } from "./auth.js";
+import { authRequired } from "./auth.js";
 
 const router = Router();
 
@@ -43,11 +44,13 @@ router.post("/register", async (req, res) => {
   const password_hash = await argon2.hash(password, { type: argon2.argon2id });
 
   try {
+    const username = email.split("@")[0];
+
     const result = await pool.query(
-      `insert into public.users (email, password_hash)
-       values ($1, $2)
-       returning id, email, role`,
-      [email.toLowerCase(), password_hash]
+      `insert into public.users (email, username, password_hash)
+       values ($1, $2, $3)
+       returning id, email, username, role`,
+      [email.toLowerCase(), username, password_hash]
     );
 
     return res.status(201).json({ user: result.rows[0] });
@@ -65,7 +68,7 @@ router.post("/login", async (req, res) => {
   const { email, password } = parsed.data;
 
   const userRes = await pool.query(
-    `select id, email, role, password_hash from public.users where email = $1`,
+    `select id, email, username, role, password_hash from public.users where email = $1`,
     [email.toLowerCase()]
   );
 
@@ -91,7 +94,7 @@ router.post("/login", async (req, res) => {
   );
 
   setRefreshCookie(res, refreshToken);
-  return res.json({ accessToken, user: { id: user.id, email: user.email, role: user.role } });
+  return res.json({ accessToken, user: { id: user.id, email: user.email, username: user.username, role: user.role } });
 });
 
 router.post("/refresh", async (req, res) => {
@@ -151,6 +154,27 @@ router.post("/logout", async (req, res) => {
   }
   clearRefreshCookie(res);
   return res.json({ ok: true });
+});
+
+
+router.get("/me", authRequired, async (req, res) => {
+  try {
+    const userRes = await pool.query(
+      `select id, email, role, created_at
+       from public.users
+       where id = $1`,
+      [req.user.sub]
+    );
+
+    const user = userRes.rows[0];
+    if (!user) {
+      return res.status(404).json({ error: "User not found" });
+    }
+
+    return res.json({ user });
+  } catch (e) {
+    return res.status(500).json({ error: e.message || "Server error" });
+  }
 });
 
 export default router;
