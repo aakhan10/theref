@@ -10,6 +10,7 @@ export default function Home() {
   const [replyText, setReplyText] = useState("");
   const [selectedSport, setSelectedSport] = useState("All");
   const [showAddPost, setShowAddPost] = useState(false);
+  const [searchTerm, setSearchTerm] = useState("");
 
   const [newPost, setNewPost] = useState({
     title: "",
@@ -18,14 +19,20 @@ export default function Home() {
     video_url: "",
     thumbnail_url: "",
   });
-  
-  const canAddPost = user?.role === "admin" || user?.role === "moderator";
 
+  const canAddPost = user?.role === "admin" || user?.role === "moderator";
 
   useEffect(() => {
     async function loadPosts() {
       try {
-        const res = await fetch("http://localhost:8080/posts");
+        const headers = accessToken
+          ? { Authorization: `Bearer ${accessToken}` }
+          : {};
+
+        const res = await fetch("http://localhost:8080/posts", {
+          headers,
+        });
+
         const data = await res.json();
 
         const formatted = data.map((post) => ({
@@ -35,17 +42,28 @@ export default function Home() {
           body: post.description,
           video_url: post.video_url,
           thumbnail_url: post.thumbnail_url,
-          likes: 0,
-          userLiked: false,
-          upvotes: Number(post.likes || 0),
-          downvotes: Number(post.dislikes || 0),
-          userVote: null,
+
+          likes: Number(post.heart_likes || 0),
+          userLiked: Boolean(post.user_liked),
+
+          upvotes: Number(post.upvotes || 0),
+          downvotes: Number(post.downvotes || 0),
+          userVote:
+            Number(post.user_vote) === 1
+              ? "up"
+              : Number(post.user_vote) === -1
+              ? "down"
+              : null,
+
           comments: (post.comments || []).map((comment) => ({
             id: comment.id,
             text: comment.text,
             parent_comment_id: comment.parent_comment_id,
+            user_id: comment.user_id,
             user_email: comment.user_email,
             username: comment.username,
+            likes: Number(comment.likes || 0),
+            userLiked: Boolean(comment.user_liked),
             isEditing: false,
           })),
           newComment: "",
@@ -58,64 +76,155 @@ export default function Home() {
     }
 
     loadPosts();
-  }, []);
+  }, [accessToken]);
 
   const getDisplayName = (comment) => {
     return comment.username || comment.user_email?.split("@")[0] || "Anonymous";
   };
 
-  const handleLike = (id) => {
-    setPosts((prev) =>
-      prev.map((post) => {
-        if (post.id !== id) return post;
-
-        if (post.userLiked) {
-          return {
-            ...post,
-            likes: post.likes - 1,
-            userLiked: false,
-          };
-        }
-
-        return {
-          ...post,
-          likes: post.likes + 1,
-          userLiked: true,
-        };
-      })
-    );
+  const canDeleteComment = (comment) => {
+    return user?.role === "admin" || String(comment.user_id) === String(user?.id);
   };
 
-  const handleVote = (id, type) => {
-    setPosts((prev) =>
-      prev.map((post) => {
-        if (post.id !== id) return post;
+  const canEditComment = (comment) => {
+    return String(comment.user_id) === String(user?.id);
+  };
 
-        let { upvotes, downvotes, userVote } = post;
+  const handleLike = async (id) => {
+    if (!accessToken) {
+      alert("You must be logged in to like a post.");
+      return;
+    }
 
-        if (userVote === "up") upvotes--;
-        if (userVote === "down") downvotes--;
+    try {
+      const res = await fetch("http://localhost:8080/likes", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${accessToken}`,
+        },
+        body: JSON.stringify({
+          post_id: id,
+        }),
+      });
 
-        if (userVote === type) {
-          return {
-            ...post,
-            upvotes,
-            downvotes,
-            userVote: null,
-          };
-        }
+      if (!res.ok) {
+        const errorData = await res.json();
+        throw new Error(errorData.error || "Failed to save like");
+      }
 
-        if (type === "up") upvotes++;
-        if (type === "down") downvotes++;
+      const data = await res.json();
 
-        return {
-          ...post,
-          upvotes,
-          downvotes,
-          userVote: type,
-        };
-      })
-    );
+      setPosts((prev) =>
+        prev.map((post) =>
+          post.id === id
+            ? {
+                ...post,
+                likes: data.likes,
+                userLiked: data.userLiked,
+              }
+            : post
+        )
+      );
+    } catch (err) {
+      console.error("Failed to save like:", err);
+      alert(err.message);
+    }
+  };
+
+  const handleVote = async (id, type) => {
+    const value = type === "up" ? 1 : -1;
+
+    if (!accessToken) {
+      alert("You must be logged in to vote.");
+      return;
+    }
+
+    try {
+      const res = await fetch("http://localhost:8080/votes", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${accessToken}`,
+        },
+        body: JSON.stringify({
+          post_id: id,
+          value,
+        }),
+      });
+
+      if (!res.ok) {
+        const errorData = await res.json();
+        throw new Error(errorData.error || "Failed to save vote");
+      }
+
+      const data = await res.json();
+
+      setPosts((prev) =>
+        prev.map((post) =>
+          post.id === id
+            ? {
+                ...post,
+                upvotes: data.upvotes,
+                downvotes: data.downvotes,
+                userVote: data.userVote,
+              }
+            : post
+        )
+      );
+    } catch (err) {
+      console.error("Failed to save vote:", err);
+      alert(err.message);
+    }
+  };
+
+  const handleLikeComment = async (postId, commentId) => {
+    if (!accessToken) {
+      alert("You must be logged in to like a comment.");
+      return;
+    }
+
+    try {
+      const res = await fetch("http://localhost:8080/comment-likes", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${accessToken}`,
+        },
+        body: JSON.stringify({
+          comment_id: commentId,
+        }),
+      });
+
+      if (!res.ok) {
+        const errorData = await res.json();
+        throw new Error(errorData.error || "Failed to like comment");
+      }
+
+      const data = await res.json();
+
+      setPosts((prev) =>
+        prev.map((post) =>
+          post.id === postId
+            ? {
+                ...post,
+                comments: post.comments.map((comment) =>
+                  String(comment.id) === String(commentId)
+                    ? {
+                        ...comment,
+                        likes: data.likes,
+                        userLiked: data.userLiked,
+                      }
+                    : comment
+                ),
+              }
+            : post
+        )
+      );
+    } catch (err) {
+      console.error("Failed to like comment:", err);
+      alert(err.message);
+    }
   };
 
   const handleCommentChange = (postId, value) => {
@@ -132,6 +241,11 @@ export default function Home() {
 
     const trimmed = post.newComment.trim();
     if (!trimmed) return;
+
+    if (!accessToken) {
+      alert("You must be logged in to comment.");
+      return;
+    }
 
     try {
       const res = await fetch("http://localhost:8080/comments", {
@@ -162,8 +276,11 @@ export default function Home() {
                     id: savedComment.id,
                     text: savedComment.body,
                     parent_comment_id: savedComment.parent_comment_id,
+                    user_id: user?.id,
                     user_email: user?.email,
                     username: user?.username || user?.email?.split("@")[0],
+                    likes: 0,
+                    userLiked: false,
                     isEditing: false,
                   },
                 ],
@@ -174,12 +291,18 @@ export default function Home() {
       );
     } catch (err) {
       console.error("Failed to save comment:", err);
+      alert(err.message);
     }
   };
 
   const handleAddReply = async (postId, parentCommentId) => {
     const trimmed = replyText.trim();
     if (!trimmed) return;
+
+    if (!accessToken) {
+      alert("You must be logged in to reply.");
+      return;
+    }
 
     try {
       const res = await fetch("http://localhost:8080/comments", {
@@ -210,8 +333,11 @@ export default function Home() {
                     id: savedReply.id,
                     text: savedReply.body,
                     parent_comment_id: savedReply.parent_comment_id,
+                    user_id: user?.id,
                     user_email: user?.email,
                     username: user?.username || user?.email?.split("@")[0],
+                    likes: 0,
+                    userLiked: false,
                     isEditing: false,
                   },
                 ],
@@ -224,6 +350,7 @@ export default function Home() {
       setReplyText("");
     } catch (err) {
       console.error("Failed to save reply:", err);
+      alert(err.message);
     }
   };
 
@@ -235,6 +362,11 @@ export default function Home() {
   };
 
   const handleDeleteComment = async (postId, commentId) => {
+    if (!accessToken) {
+      alert("You must be logged in to delete a comment.");
+      return;
+    }
+
     try {
       const res = await fetch(`http://localhost:8080/comments/${commentId}`, {
         method: "DELETE",
@@ -243,7 +375,10 @@ export default function Home() {
         },
       });
 
-      if (!res.ok) throw new Error("Failed to delete comment");
+      if (!res.ok) {
+        const errorData = await res.json();
+        throw new Error(errorData.error || "Failed to delete comment");
+      }
 
       setPosts((prev) =>
         prev.map((post) =>
@@ -252,8 +387,8 @@ export default function Home() {
                 ...post,
                 comments: post.comments.filter(
                   (comment) =>
-                    comment.id !== commentId &&
-                    comment.parent_comment_id !== commentId
+                    String(comment.id) !== String(commentId) &&
+                    String(comment.parent_comment_id) !== String(commentId)
                 ),
               }
             : post
@@ -261,6 +396,7 @@ export default function Home() {
       );
     } catch (err) {
       console.error("Failed to delete comment:", err);
+      alert(err.message);
     }
   };
 
@@ -272,7 +408,7 @@ export default function Home() {
         return {
           ...post,
           comments: post.comments.map((comment) =>
-            comment.id === commentId
+            String(comment.id) === String(commentId)
               ? { ...comment, isEditing: true }
               : comment
           ),
@@ -289,7 +425,9 @@ export default function Home() {
         return {
           ...post,
           comments: post.comments.map((comment) =>
-            comment.id === commentId ? { ...comment, text: value } : comment
+            String(comment.id) === String(commentId)
+              ? { ...comment, text: value }
+              : comment
           ),
         };
       })
@@ -304,7 +442,7 @@ export default function Home() {
         return {
           ...post,
           comments: post.comments.map((comment) => {
-            if (comment.id !== commentId) return comment;
+            if (String(comment.id) !== String(commentId)) return comment;
 
             return {
               ...comment,
@@ -326,23 +464,28 @@ export default function Home() {
 
   const handleNewPostChange = (e) => {
     const { name, value } = e.target;
-  
+
     setNewPost((prev) => ({
       ...prev,
       [name]: value,
     }));
   };
-  
+
   const handleCreatePost = async (e) => {
     e.preventDefault();
-  
+
     const trimmedTitle = newPost.title.trim();
     const trimmedDescription = newPost.description.trim();
-  
+
     if (!trimmedTitle || !newPost.sport || !trimmedDescription) {
       return;
     }
-  
+
+    if (!accessToken) {
+      alert("You must be logged in to create a post.");
+      return;
+    }
+
     try {
       const res = await fetch("http://localhost:8080/posts", {
         method: "POST",
@@ -358,14 +501,14 @@ export default function Home() {
           thumbnail_url: newPost.thumbnail_url.trim() || null,
         }),
       });
-  
+
       if (!res.ok) {
         const errorData = await res.json();
         throw new Error(errorData.error || "Failed to create post");
       }
-  
+
       const savedPost = await res.json();
-  
+
       const formattedPost = {
         id: savedPost.id,
         author: savedPost.sport || "TheRef",
@@ -381,9 +524,9 @@ export default function Home() {
         comments: [],
         newComment: "",
       };
-  
+
       setPosts((prev) => [formattedPost, ...prev]);
-  
+
       setNewPost({
         title: "",
         sport: "",
@@ -391,7 +534,7 @@ export default function Home() {
         video_url: "",
         thumbnail_url: "",
       });
-  
+
       setShowAddPost(false);
     } catch (err) {
       console.error("Failed to create post:", err);
@@ -399,14 +542,32 @@ export default function Home() {
     }
   };
 
+  const filteredPosts = posts.filter((post) => {
+    const matchesSport =
+      selectedSport === "All" ? true : post.author === selectedSport;
+
+    const search = searchTerm.toLowerCase().trim();
+
+    const matchesSearch =
+      search === "" ||
+      post.title?.toLowerCase().includes(search) ||
+      post.body?.toLowerCase().includes(search) ||
+      post.author?.toLowerCase().includes(search) ||
+      post.comments?.some((comment) =>
+        comment.text?.toLowerCase().includes(search)
+      );
+
+    return matchesSport && matchesSearch;
+  });
+
   return (
     <div className="home-page">
       <header className="topbar">
-      <div className="brand-center">
-        <div className="logo-mark">TR</div>
-        <h1 className="logo">The Ref</h1>
-        <p className="tagline">Debate. Vote. Settle the call.</p>
-      </div>
+        <div className="brand-center">
+          <div className="logo-mark">TR</div>
+          <h1 className="logo">The Ref</h1>
+          <p className="tagline">Debate. Vote. Settle the call.</p>
+        </div>
 
         <div className="topbar-right">
           <span className="welcome-text">
@@ -419,34 +580,35 @@ export default function Home() {
       </header>
 
       <main className="feed-layout">
-      <aside className="left-panel">
-        <div className="profile-card">
-          <h3>Your Profile</h3>
+        <aside className="left-panel">
+          <div className="profile-card">
+            <h3>Your Profile</h3>
 
-          <div className="info-box">
-            <span className="label">Email</span>
-            <span className="value">{user?.email}</span>
+            <div className="info-box">
+              <span className="label">Email</span>
+              <span className="value">{user?.email}</span>
+            </div>
+
+            <div className="info-box">
+              <span className="label">Role</span>
+              <span className="value">{user?.role}</span>
+            </div>
           </div>
 
-          <div className="info-box">
-            <span className="label">Role</span>
-            <span className="value">{user?.role}</span>
-          </div>
-        </div>
-        {canAddPost && (
-          <button
-            className="add-post-btn"
-            onClick={() => setShowAddPost((prev) => !prev)}
-          >
-            {showAddPost ? "Cancel" : "+ Add Post"}
-          </button>
-        )}
+          {canAddPost && (
+            <button
+              className="add-post-btn"
+              onClick={() => setShowAddPost((prev) => !prev)}
+            >
+              {showAddPost ? "Cancel" : "+ Add Post"}
+            </button>
+          )}
 
-        {canAddPost && showAddPost && (
-          <form className="add-post-form" onSubmit={handleCreatePost}>
-            <h3>Add New Debate</h3>
+          {canAddPost && showAddPost && (
+            <form className="add-post-form" onSubmit={handleCreatePost}>
+              <h3>Add New Debate</h3>
 
-            <input
+              <input
                 type="text"
                 name="title"
                 placeholder="Title"
@@ -455,71 +617,104 @@ export default function Home() {
                 required
               />
 
-            <select
-              name="sport"
-              value={newPost.sport}
-              onChange={handleNewPostChange}
-              required
-            >
-              <option value="">Select a sport</option>
-              <option value="Football">Football</option>
-              <option value="Basketball">Basketball</option>
-              <option value="Baseball">Baseball</option>
-              <option value="Soccer">Soccer</option>
-            </select>
+              <select
+                name="sport"
+                value={newPost.sport}
+                onChange={handleNewPostChange}
+                required
+              >
+                <option value="">Select a sport</option>
+                <option value="Football">Football</option>
+                <option value="Basketball">Basketball</option>
+                <option value="Baseball">Baseball</option>
+                <option value="Soccer">Soccer</option>
+              </select>
 
-            <textarea
-              name="description"
-              placeholder="Describe the controversial call..."
-              value={newPost.description}
-              onChange={handleNewPostChange}
-              required
-            />
+              <textarea
+                name="description"
+                placeholder="Describe the controversial call..."
+                value={newPost.description}
+                onChange={handleNewPostChange}
+                required
+              />
 
-            <input
-              type="url"
-              name="video_url"
-              placeholder="Video URL"
-              value={newPost.video_url}
-              onChange={handleNewPostChange}
-            />
+              <input
+                type="url"
+                name="video_url"
+                placeholder="Video URL"
+                value={newPost.video_url}
+                onChange={handleNewPostChange}
+              />
 
-            <input
-              type="url"
-              name="thumbnail_url"
-              placeholder="Thumbnail image URL"
-              value={newPost.thumbnail_url}
-              onChange={handleNewPostChange}
-            />
+              <input
+                type="url"
+                name="thumbnail_url"
+                placeholder="Thumbnail image URL"
+                value={newPost.thumbnail_url}
+                onChange={handleNewPostChange}
+              />
 
-            <button type="submit" className="submit-post-btn">
-              Create Post
+              <button type="submit" className="submit-post-btn">
+                Create Post
+              </button>
+            </form>
+          )}
+
+          <div className="sports-nav">
+            <h3>Sports</h3>
+
+            <button onClick={() => setSelectedSport("All")}>
+              📈 Trending
             </button>
-          </form>
-        )}
+            <button onClick={() => setSelectedSport("Football")}>
+              🏈 Football
+            </button>
+            <button onClick={() => setSelectedSport("Basketball")}>
+              🏀 Basketball
+            </button>
+            <button onClick={() => setSelectedSport("Baseball")}>
+              ⚾ Baseball
+            </button>
+            <button onClick={() => setSelectedSport("Soccer")}>
+              ⚽ Soccer
+            </button>
+          </div>
+        </aside>
 
-        <div className="sports-nav">
-          <h3>Sports</h3>
-
-          <button onClick={() => setSelectedSport("All")}>📈 Trending</button>
-          <button onClick={() => setSelectedSport("Football")}>🏈 Football</button>
-          <button onClick={() => setSelectedSport("Basketball")}>🏀 Basketball</button>
-          <button onClick={() => setSelectedSport("Baseball")}>⚾ Baseball</button>
-          <button onClick={() => setSelectedSport("Soccer")}>⚽ Soccer</button>
-        </div>
-      </aside>
         <section className="feed-section">
           <div className="hero-card">
             <h2>Trending Debates</h2>
             <p>Vote and comment on controversial sports moments.</p>
           </div>
 
+          <div className="search-card">
+            <input
+              type="text"
+              placeholder="Search debates, sports, or comments..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="search-input"
+            />
+
+            {searchTerm && (
+              <button
+                className="clear-search-btn"
+                onClick={() => setSearchTerm("")}
+              >
+                Clear
+              </button>
+            )}
+          </div>
+
           <div className="posts-list">
-          {posts
-              .filter((post) =>
-                selectedSport === "All" ? true : post.author === selectedSport
-              )
-              .map((post) => {
+            {filteredPosts.length === 0 && (
+              <div className="no-results-card">
+                <h3>No debates found</h3>
+                <p>Try searching for another sport, team, or keyword.</p>
+              </div>
+            )}
+
+            {filteredPosts.map((post) => {
               const totalVotes = post.upvotes + post.downvotes;
               const upPercent =
                 totalVotes === 0
@@ -530,13 +725,14 @@ export default function Home() {
                   ? 0
                   : Math.round((post.downvotes / totalVotes) * 100);
 
-              const parentComments = post.comments.filter(
+              const parentComments = (post.comments || []).filter(
                 (comment) => !comment.parent_comment_id
               );
 
               const getReplies = (commentId) =>
-                post.comments.filter(
-                  (comment) => comment.parent_comment_id === commentId
+                (post.comments || []).filter(
+                  (comment) =>
+                    String(comment.parent_comment_id) === String(commentId)
                 );
 
               return (
@@ -653,29 +849,44 @@ export default function Home() {
 
                             <div className="comment-actions">
                               <button
+                                className={`comment-action-btn ${
+                                  comment.userLiked ? "active" : ""
+                                }`}
+                                onClick={() =>
+                                  handleLikeComment(post.id, comment.id)
+                                }
+                              >
+                                ❤️ {comment.likes}
+                              </button>
+
+                              <button
                                 className="comment-action-btn"
                                 onClick={() => setReplyingTo(comment.id)}
                               >
                                 Reply
                               </button>
 
-                              <button
-                                className="comment-action-btn"
-                                onClick={() =>
-                                  handleEditComment(post.id, comment.id)
-                                }
-                              >
-                                Edit
-                              </button>
+                              {canEditComment(comment) && (
+                                <button
+                                  className="comment-action-btn"
+                                  onClick={() =>
+                                    handleEditComment(post.id, comment.id)
+                                  }
+                                >
+                                  Edit
+                                </button>
+                              )}
 
-                              <button
-                                className="comment-action-btn delete-btn"
-                                onClick={() =>
-                                  handleDeleteComment(post.id, comment.id)
-                                }
-                              >
-                                Delete
-                              </button>
+                              {canDeleteComment(comment) && (
+                                <button
+                                  className="comment-action-btn delete-btn"
+                                  onClick={() =>
+                                    handleDeleteComment(post.id, comment.id)
+                                  }
+                                >
+                                  Delete
+                                </button>
+                              )}
                             </div>
                           </div>
                         )}
@@ -705,7 +916,10 @@ export default function Home() {
                         )}
 
                         {getReplies(comment.id).map((reply) => (
-                          <div key={reply.id} className="comment reply-comment">
+                          <div
+                            key={reply.id}
+                            className="comment reply-comment"
+                          >
                             <div className="comment-row">
                               <div className="comment-content">
                                 <strong className="comment-user">
@@ -718,13 +932,26 @@ export default function Home() {
 
                               <div className="comment-actions">
                                 <button
-                                  className="comment-action-btn delete-btn"
+                                  className={`comment-action-btn ${
+                                    reply.userLiked ? "active" : ""
+                                  }`}
                                   onClick={() =>
-                                    handleDeleteComment(post.id, reply.id)
+                                    handleLikeComment(post.id, reply.id)
                                   }
                                 >
-                                  Delete
+                                  ❤️ {reply.likes}
                                 </button>
+
+                                {canDeleteComment(reply) && (
+                                  <button
+                                    className="comment-action-btn delete-btn"
+                                    onClick={() =>
+                                      handleDeleteComment(post.id, reply.id)
+                                    }
+                                  >
+                                    Delete
+                                  </button>
+                                )}
                               </div>
                             </div>
                           </div>
