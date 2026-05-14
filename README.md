@@ -64,26 +64,6 @@ The backend will run at:
 http://localhost:8080
 ```
 
-To make sure the backend is working, open this in your browser:
-
-```text
-http://localhost:8080/health
-```
-
-Or run:
-
-```bash
-curl http://localhost:8080/health
-```
-
-You should see:
-
-```json
-{
-  "ok": true
-}
-```
-
 ### Terminal 2: Run the Frontend
 
 Open a second terminal. From the main project folder, run:
@@ -148,13 +128,13 @@ Main tables include:
 
 ## Purpose
 
-This project was built for a software engineering course to practice full-stack development, authentication, database design, role-based access control, and user interaction features.
+This project was built for a compiter science course to practice full-stack development, authentication, database design, role-based access control, and user interaction features.
 
 ## Future Improvements
 
 - Add user profile pages
-- Add search functionality
-- Improve mobile layout
+- Make Search Functionality better
+- Make mobile
 - Add better video preview handling
 - Add reporting/moderation tools
 - Add more sports categories
